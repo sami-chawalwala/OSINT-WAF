@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tan-sam - OSINT Harvester
+ - OSINT 
 """
 
 import asyncio
@@ -1050,7 +1050,7 @@ class TanSamHarvester:
 def main():
     parser = argparse.ArgumentParser(
         description="tan-sam - OSINT Harvester",
-        epilog="USE IT, ABUSE IT, WHO CARES 💀"
+        epilog="USE IT, ABUSE IT, WHO CARES "
     )
     
     mode_group = parser.add_mutually_exclusive_group(required=True)
