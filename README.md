@@ -1,19 +1,25 @@
-# RAW-OSINT & WAF Detector
+## RAW-OSINT & WAF Detector
 Developed by: **SAMI CHAWALWALA**
 ---
 
 
-# Installation FOR KALI
+### Installation FOR KALI
 
--(open your root terminal)-
+-(open your terminal)-
+
 sudo su
+
 git clone https://github.com/sami-chawalwala/OSINT-with-WAF-Detector.git
+
 cd OSINT-with-WAF-Detector
+
 pip3 install requests beautifulsoup4 aiohttp wafw00f --break-system-packages
-chmod +x RAW-OSINT.py
+
+chmod +x RAW-OSINT
+
  **Installation Done**
  
-  # RUN IT #
+  ### RUN IT 
 1. OSINT Mode - Domain Reconnaissance:
  bash
    python3 RAW-OSINT.py -d example.com
