@@ -21,13 +21,23 @@ chmod +x RAW-OSINT
  
   ### RUN IT 
 1. OSINT Mode - Domain Reconnaissance:
+ 
  bash
-   python3 RAW-OSINT.py -d example.com
+ 
+      python3 RAW-OSINT.py -d example.com
+
+
+
 
    
 2. WAF Detection Mode - Firewall Detection:
+   
  bash
+ 
      python3 RAW-OSINT.py -waf https://example.com
+
+
+
 
 
 
