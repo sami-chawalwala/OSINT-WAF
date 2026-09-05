@@ -1,0 +1,1083 @@
+#!/usr/bin/env python3
+"""
+tan-sam - OSINT Harvester
+"""
+
+import asyncio
+import aiohttp
+import re
+import json
+import argparse
+import ssl
+from urllib.parse import quote_plus, urlparse
+from typing import Set, Dict, List, Optional, Tuple
+from datetime import datetime
+import socket
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
+import time
+import requests
+from bs4 import BeautifulSoup
+
+# ============================================================
+# BANNER - SAMI
+# ============================================================
+
+BANNER = """
+    ███████╗ ███████  ███╗   ███╗ ██╗
+    ██╔════╝ ██╔══██╗ ████╗ ████║ ██║
+    ███████╗ ███████║ ██╔████╔██║ ██║
+    ╚════██║ ██╔══██║ ██║╚██╔╝██║ ██║
+    ███████║ ██║  ██║ ██║ ╚═╝ ██║ ██║
+    ╚══════╝ ╚═╝  ╚═╝ ╚═╝     ╚═╝ ╚═╝
+
+    
+"""
+
+class TanSamHarvester:
+   
+    
+    def __init__(self, domain: str = None, url: str = None, limit: int = 500, timeout: int = 15):
+        # Print banner first
+        print(BANNER)
+        
+        self.domain = domain
+        self.url = url
+        self.limit = limit
+        self.timeout = timeout
+        self.waf_mode = url is not None
+        
+        # Core data
+        self.emails: Set[str] = set()
+        self.subdomains: Set[str] = set()
+        self.resolving_subdomains: Set[str] = set()
+        self.non_resolving_subdomains: Set[str] = set()
+        
+        # IP data
+        self.ipv4_addresses: Set[str] = set()
+        self.ipv6_addresses: Set[str] = set()
+        self.current_dns_ips: Set[str] = set()
+        self.historical_ips: Set[str] = set()
+        self.asn_info: Set[str] = set()
+        self.asn_numbers: Set[str] = set()
+        
+        # Other data
+        self.hosts: Set[str] = set()
+        self.urls: Set[str] = set()
+        self.github_repos: Set[str] = set()
+        self.wayback_urls: Set[str] = set()
+        self.linkedin_profiles: Set[str] = set()
+        self.instagram_accounts: Set[str] = set()
+        self.instagram_posts: Set[str] = set()
+        self.twitter_accounts: Set[str] = set()
+        self.twitter_tweets: Set[str] = set()
+        self.reddit_posts: Set[str] = set()
+        self.pastebin_posts: Set[str] = set()
+        self.website_ips: Set[str] = set()
+        
+        # WAF data
+        self.waf_detected: str = None
+        self.waf_details: List[str] = []
+        self.waf_confidence: str = "N/A"
+        self.generic_detection: str = "N/A"
+        self.request_count: str = "N/A"
+        self.notes: List[str] = []
+        
+        # Source tracking
+        self.sources_used: Set[str] = set()
+        self.failed_sources: Set[str] = set()
+        
+        # Subdomain tracking
+        self.total_subdomains_discovered: int = 0
+        self.dns_resolving_count: int = 0
+        self.dns_non_resolving_count: int = 0
+        
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        if self.waf_mode:
+            print(f"[+]--Open-source intelligence ")
+        else:
+            print(f"[+]--Open-source intelligence ")
+        print(f"[+]--Developed by: SAMI CHAWALWALA ")
+        print(f"[+]☠️ tan-sam initialized for domain: {domain}")
+    
+    # ==================== WAF DETECTION (FULL POWER) ====================
+    
+    def detect_waf(self):
+        """Detect WAF using wafw00f with full potential."""
+        print(f"\n[+] 🛡️  WAF Detection activated for: {self.url}...")
+        self.sources_used.add('WAF Detection')
+        
+        # Try using wafw00f with full options
+        try:
+            # Use -a (find all) and -v (verbose) for maximum detection
+            result = subprocess.run(
+                ['wafw00f', '-a', '-v', self.url],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                output = result.stdout
+                stderr = result.stderr
+                
+                # Clean details - skip ASCII art
+                clean_details = []
+                for line in output.strip().split('\n'):
+                    if not any(x in line for x in ['?', '_', '`', '(', ')', '/', '\\', '|', '.', ',', "'", '"']):
+                        if line.strip() and not line.startswith(' ' * 10):  # Skip indented ASCII
+                            clean_details.append(line.strip())
+                self.waf_details = clean_details
+                
+                # Extract confidence
+                self.waf_confidence = "HIGH"
+                conf_match = re.search(r'confidence:?\s*(\w+)', output, re.IGNORECASE)
+                if conf_match:
+                    self.waf_confidence = conf_match.group(1).upper()
+                
+                # Extract WAF name - multiple patterns
+                waf_patterns = [
+                    r'is behind (.+?)\s*WAF',
+                    r'is behind (.+?)\s*\(',
+                    r'is behind (.+?)(?:\s+\(|$)',
+                    r'behind (.+?)\s*WAF',
+                    r'\[+\] The site .+? is behind (.+?)(?:\s+\(|$)',
+                    r'WAF:\s*(.+?)(?:\s+\(|$)',
+                    r'Detected WAF:\s*(.+?)(?:\s+\(|$)',
+                    r'waf:\s*(.+?)(?:\s+\(|$)',
+                    r'Firewall:\s*(.+?)(?:\s+\(|$)',
+                ]
+                
+                waf_detected = None
+                for pattern in waf_patterns:
+                    match = re.search(pattern, output, re.IGNORECASE)
+                    if match:
+                        waf_detected = match.group(1).strip()
+                        break
+                
+                # Check generic detection
+                generic_match = re.search(r'Generic Detection results?:\s*(.+)', output, re.IGNORECASE)
+                self.generic_detection = generic_match.group(1).strip() if generic_match else "N/A"
+                
+                # Get request count
+                req_match = re.search(r'Number of requests?:\s*(\d+)', output, re.IGNORECASE)
+                self.request_count = req_match.group(1) if req_match else "N/A"
+                
+                # Build notes
+                self.notes = []
+                if "timeout" in stderr.lower() or "timeout" in output.lower():
+                    timeout_match = re.search(r'(\d+)s?\s*timeout', stderr.lower() + output.lower(), re.IGNORECASE)
+                    if timeout_match:
+                        self.notes.append(f"WAFW00F generic detection encountered a {timeout_match.group(1)}s HTTPS timeout")
+                self.notes.append("Detection indicates a security layer; exact configuration is not inferred")
+                
+                # Determine result
+                if 'No WAF detected' in output or 'No WAF' in output:
+                    self.waf_detected = "No WAF Detected"
+                    self.waf_confidence = "N/A"
+                elif waf_detected:
+                    self.waf_detected = waf_detected
+                    # Add evidence items
+                    self.waf_details.insert(0, f"Fingerprint match: {waf_detected}")
+                else:
+                    # Aggressive fallback detection
+                    lines = output.split('\n')
+                    for line in lines:
+                        if 'behind' in line.lower() or 'waf' in line.lower():
+                            parts = line.split()
+                            for part in parts:
+                                if part and part[0].isupper() and len(part) > 3:
+                                    if any(x in part.lower() for x in ['cloudflare', 'aws', 'akamai', 'kona', 'incapsula', 'sucuri']):
+                                        self.waf_detected = part
+                                        break
+                            if self.waf_detected:
+                                break
+                    
+                    if not self.waf_detected:
+                        self.waf_detected = "Unknown (check details below)"
+                    else:
+                        self.waf_details.insert(0, f"Fingerprint match: {self.waf_detected}")
+                
+                print(f"[+]  WAF Detection complete")
+                return
+                
+        except FileNotFoundError:
+            print("[+]   wafw00f not installed - using fallback detection")
+            self.failed_sources.add('wafw00f (not installed)')
+            self.notes = ["wafw00f not installed - using basic detection", "Detection indicates a security layer; exact configuration is not inferred"]
+        except subprocess.TimeoutExpired:
+            print("[+]   wafw00f timed out - using fallback detection")
+            self.failed_sources.add('wafw00f (timeout)')
+            self.notes = ["WAFW00F generic detection encountered a timeout", "Detection indicates a security layer; exact configuration is not inferred"]
+        except Exception as e:
+            print(f"[+]   wafw00f error: {e} - using fallback detection")
+            self.failed_sources.add(f'wafw00f ({str(e)})')
+            self.notes = [f"wafw00f error: {str(e)}", "Detection indicates a security layer; exact configuration is not inferred"]
+        
+        # Fallback: Basic WAF detection
+        self._basic_waf_detection()
+    
+    def _basic_waf_detection(self):
+        """Basic WAF detection without wafw00f."""
+        print("[+]  Running basic WAF detection...")
+        
+        try:
+            # Send normal request
+            response = requests.get(self.url, headers=self.headers, timeout=10)
+            normal_status = response.status_code
+            headers = response.headers
+            
+            # Send security-pattern request (SQL injection probe)
+            test_url = self.url + "' OR '1'='1"
+            test_response = requests.get(test_url, headers=self.headers, timeout=10, allow_redirects=False)
+            security_status = test_response.status_code
+            
+            # Check headers for WAF signatures
+            server_header = headers.get('Server', '').lower()
+            set_cookie = headers.get('Set-Cookie', '').lower()
+            
+            waf_signatures = {
+                'Cloudflare': ['cloudflare', 'cf-ray', '__cfduid', 'cf-cache-status'],
+                'Kona SiteDefender': ['kona', 'akamai', 'x-akamai', 'x-akamai-transformed'],
+                'AWS WAF': ['x-amzn-requestid', 'aws', 'x-amzn-request-id'],
+                'Akamai': ['akamaitech', 'akamaitechnologies', 'x-akamai'],
+                'Fastly': ['fastly', 'x-fastly', 'x-served-by'],
+                'Incapsula': ['incapsula', 'x-cdn', 'x-iinfo'],
+                'Sucuri': ['sucuri', 'x-sucuri', 'x-sucuri-id'],
+                'ModSecurity': ['mod_security', 'modsecurity', 'x-modsecurity'],
+                'F5 BIG-IP': ['f5', 'big-ip', 'x-wa-info', 'bigip'],
+                'Barracuda': ['barracuda', 'cuda'],
+                'CloudFront': ['cloudfront', 'x-amz-cf-id'],
+                'Azure WAF': ['azure', 'x-azure'],
+                'Wordfence': ['wordfence', 'wf_'],
+                'Imperva': ['imperva', 'x-iinfo', 'incapsula'],
+                'SiteGround': ['siteground', 'sg-'],
+            }
+            
+            detected = []
+            header_str = str(headers).lower()
+            
+            for waf_name, signatures in waf_signatures.items():
+                for sig in signatures:
+                    if sig in server_header or sig in set_cookie or sig in header_str:
+                        detected.append(waf_name)
+                        break
+            
+            # Check for generic block pages
+            if response.status_code in [403, 406, 503] or test_response.status_code in [403, 406, 503]:
+                if 'cloudflare' in str(response.content).lower():
+                    detected.append('Cloudflare')
+                elif 'kona' in str(response.content).lower() or 'akamai' in str(response.content).lower():
+                    detected.append('Kona SiteDefender')
+                elif 'incapsula' in str(response.content).lower():
+                    detected.append('Incapsula')
+                elif 'sucuri' in str(response.content).lower():
+                    detected.append('Sucuri')
+                else:
+                    detected.append('Generic WAF (block page)')
+            
+            if detected:
+                self.waf_detected = ' + '.join(set(detected))
+                self.waf_confidence = "MEDIUM (header-based detection)"
+                self.generic_detection = "Header fingerprint match"
+                self.waf_details = [
+                    f"Fingerprint match: {self.waf_detected}",
+                    f"Normal request: {normal_status}",
+                    f"Security-pattern request: {security_status}",
+                    "Independent header-based confirmation"
+                ]
+                self.request_count = "N/A"
+            else:
+                self.waf_detected = "No WAF Detected"
+                self.waf_confidence = "LOW"
+                self.waf_details = ["No WAF signatures found in headers"]
+                self.generic_detection = "No WAF detected"
+                self.request_count = "N/A"
+                
+            print("[+]  Basic WAF Detection complete")
+            
+        except Exception as e:
+            self.waf_detected = "Detection Failed"
+            self.waf_confidence = "N/A"
+            self.waf_details = [f"Error: {str(e)}"]
+            self.failed_sources.add('Basic WAF Detection')
+    
+    def display_waf_results(self):
+        """Display WAF detection results in clean, detailed format."""
+        print(f"\n{'='*70}")
+        print(f"  WAF DETECTION RESULTS")
+        print(f"{'='*70}")
+        
+        print(f"\n Target: {self.url}")
+        print(f"\n WAF: {self.waf_detected if self.waf_detected else 'Unknown'}")
+        print(f" Confidence: {self.waf_confidence if hasattr(self, 'waf_confidence') else 'N/A'}")
+        
+        print(f"\n🔎 Evidence:")
+        # Show clean evidence
+        evidence_found = False
+        if hasattr(self, 'generic_detection') and self.generic_detection and self.generic_detection != "N/A":
+            if "fingerprint" in self.generic_detection.lower() or "match" in self.generic_detection.lower():
+                print(f"  ✓ {self.generic_detection}")
+                evidence_found = True
+        
+        if hasattr(self, 'waf_details') and self.waf_details:
+            for detail in self.waf_details:
+                if detail and not any(x in detail for x in ['?', '_', '`', '(', ')', '/', '\\', '|']):
+                    if any(x in detail.lower() for x in ['fingerprint', 'request', 'status', 'match', 'confirmation']):
+                        print(f"  ✓ {detail}")
+                        evidence_found = True
+        
+        if not evidence_found and self.waf_detected and self.waf_detected != "No WAF Detected" and self.waf_detected != "Unknown (check details below)":
+            print(f"  ✓ Fingerprint match: {self.waf_detected}")
+            print(f"  ✓ Independent WAFW00F confirmation")
+        
+        print(f"\n Sources:")
+        for source in self.sources_used:
+            if source in self.failed_sources:
+                print(f"  ⚠ {source} - failed")
+            else:
+                print(f"  ✓ {source}")
+        
+        if hasattr(self, 'notes') and self.notes:
+            print(f"\n  Notes:")
+            for note in self.notes:
+                print(f"  • {note}")
+        
+        if hasattr(self, 'request_count') and self.request_count and self.request_count != "N/A":
+            print(f"\n Requests: {self.request_count}")
+        
+        print(f"{'='*70}")
+        print(f"✅  WAF detection done. 💀")
+        
+    
+    # ==================== WEBSITE IP & ASN DISCOVERY ====================
+    
+    def discover_website_ip(self):
+        """Get the actual IP of the domain and related info."""
+        if self.waf_mode:
+            if self.url:
+                parsed = urlparse(self.url)
+                self.domain = parsed.netloc or self.url.replace('https://', '').replace('http://', '').split('/')[0]
+        
+        print(f"[+]  Discovering website IP for {self.domain}...")
+        try:
+            ip = socket.gethostbyname(self.domain)
+            self.website_ips.add(f"{self.domain} -> {ip}")
+            self.current_dns_ips.add(ip)
+            self.ipv4_addresses.add(ip)
+            
+            try:
+                ipv6 = socket.getaddrinfo(self.domain, None, socket.AF_INET6)
+                for addr in ipv6:
+                    self.ipv6_addresses.add(addr[4][0])
+            except:
+                pass
+            
+            try:
+                whois_result = subprocess.run(['whois', ip], capture_output=True, text=True)
+                if whois_result.stdout:
+                    asn_match = re.search(r'origin:?\s*(AS\d+)', whois_result.stdout, re.IGNORECASE)
+                    if asn_match:
+                        asn = asn_match.group(1)
+                        self.asn_info.add(f"ASN: {asn}")
+                        self.asn_numbers.add(asn)
+                    
+                    org_match = re.search(r'org(?:anization)?:?\s*(.+)', whois_result.stdout, re.IGNORECASE)
+                    if org_match:
+                        self.asn_info.add(f"Organization: {org_match.group(1).strip()}")
+                    
+                    country_match = re.search(r'country:?\s*(\w+)', whois_result.stdout, re.IGNORECASE)
+                    if country_match:
+                        self.asn_info.add(f"Country: {country_match.group(1)}")
+            except:
+                pass
+            
+            try:
+                ipinfo_url = f"https://ipinfo.io/{ip}/json"
+                response = requests.get(ipinfo_url, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'org' in data:
+                        org_parts = data['org'].split(' ')
+                        if org_parts and org_parts[0].startswith('AS'):
+                            asn = org_parts[0]
+                            self.asn_info.add(f"ASN: {asn}")
+                            self.asn_numbers.add(asn)
+            except:
+                pass
+                
+        except:
+            print(f"[+] ⚠️  Could not resolve IP for {self.domain}")
+    
+    # ==================== EMAIL HARVESTING ====================
+    
+    def harvest_emails_from_text(self, text: str):
+        email_patterns = [
+            r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
+            r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+',
+            r'[a-zA-Z0-9._%+-]+\s*\[at\]\s*[a-zA-Z0-9.-]+\s*\[dot\]\s*[a-zA-Z]{2,}',
+            r'[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\s*\.\s*[a-zA-Z]{2,}',
+        ]
+        
+        for pattern in email_patterns:
+            found = re.findall(pattern, text, re.IGNORECASE)
+            for email in found[:self.limit]:
+                email = email.replace(' [at] ', '@').replace(' [dot] ', '.').replace(' ', '')
+                if self.domain in email:
+                    self.emails.add(email.lower())
+    
+    def search_emails_google(self):
+        print(f"[+]  Searching Google for emails...")
+        self.sources_used.add('Google Email Search')
+        try:
+            queries = [
+                f'site:{self.domain} "@{self.domain}"',
+                f'{self.domain} email',
+                f'"{self.domain}" email',
+                f'contact@{self.domain}',
+                f'info@{self.domain}',
+                f'support@{self.domain}',
+                f'admin@{self.domain}',
+                f'webmaster@{self.domain}',
+            ]
+            for query in queries[:3]:
+                url = f"https://www.google.com/search?q={quote_plus(query)}"
+                response = requests.get(url, headers=self.headers, timeout=10)
+                if response.status_code == 200:
+                    self.harvest_emails_from_text(response.text)
+        except:
+            self.failed_sources.add('Google Email Search')
+    
+    def search_emails_bing(self):
+        print(f"[+]  Searching Bing for emails...")
+        self.sources_used.add('Bing Email Search')
+        try:
+            queries = [f'site:{self.domain} email', f'"{self.domain}" email', f'@{self.domain}']
+            for query in queries[:2]:
+                url = f"https://www.bing.com/search?q={quote_plus(query)}"
+                response = requests.get(url, headers=self.headers, timeout=10)
+                if response.status_code == 200:
+                    self.harvest_emails_from_text(response.text)
+        except:
+            self.failed_sources.add('Bing Email Search')
+    
+    def search_emails_duckduckgo(self):
+        print(f"[+]  Searching DuckDuckGo for emails...")
+        self.sources_used.add('DuckDuckGo Email Search')
+        try:
+            query = f'{self.domain} email'
+            url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                self.harvest_emails_from_text(response.text)
+        except:
+            self.failed_sources.add('DuckDuckGo Email Search')
+    
+    def search_emails_github(self):
+        print(f"[+]  Searching GitHub for emails...")
+        self.sources_used.add('GitHub Email Search')
+        github_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        try:
+            query = f'{self.domain} email'
+            url = f"https://api.github.com/search/code?q={quote_plus(query)}&per_page=100"
+            response = requests.get(url, headers=github_headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                for item in data.get('items', [])[:self.limit]:
+                    file_url = item.get('html_url', '')
+                    if file_url:
+                        raw_url = file_url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
+                        raw_response = requests.get(raw_url, timeout=5)
+                        if raw_response.status_code == 200:
+                            self.harvest_emails_from_text(raw_response.text)
+        except:
+            self.failed_sources.add('GitHub Email Search')
+    
+    def search_emails_pastebin(self):
+        print(f"[+]  Searching Pastebin for emails...")
+        self.sources_used.add('Pastebin Email Search')
+        try:
+            url = f"https://pastebin.com/search?q={quote_plus(self.domain)}"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                self.harvest_emails_from_text(response.text)
+                paste_pattern = r'https://pastebin\.com/[a-zA-Z0-9]+'
+                found_pastes = re.findall(paste_pattern, response.text)
+                for paste in found_pastes[:10]:
+                    raw_content = requests.get(paste + '/raw', timeout=5)
+                    if raw_content.status_code == 200:
+                        self.harvest_emails_from_text(raw_content.text)
+        except:
+            self.failed_sources.add('Pastebin Email Search')
+    
+    # ==================== SUBDOMAIN DISCOVERY ====================
+    
+    def get_subdomains_from_passive_dns(self):
+        print(f"[+]  Getting subdomains from passive DNS...")
+        self.sources_used.add('Passive DNS')
+        try:
+            url = f"https://rapiddns.io/subdomain/{self.domain}?full=1"
+            response = requests.get(url, timeout=10, headers=self.headers)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                for td in soup.find_all('td'):
+                    if self.domain in td.text:
+                        sub = td.text.strip()
+                        if sub != self.domain and sub.endswith(self.domain):
+                            self.subdomains.add(sub)
+        except:
+            self.failed_sources.add('RapidDNS')
+        try:
+            url = f"https://securitytrails.com/list/apex_domain/{self.domain}"
+            response = requests.get(url, timeout=10, headers=self.headers)
+            if response.status_code == 200:
+                sub_pattern = rf'([a-zA-Z0-9-]+)\.{re.escape(self.domain)}'
+                found = re.findall(sub_pattern, response.text)
+                for sub in found:
+                    if sub and sub not in ['www', 'mail', 'ftp']:
+                        self.subdomains.add(f"{sub}.{self.domain}")
+        except:
+            self.failed_sources.add('SecurityTrails')
+        try:
+            url = f"https://otx.alienvault.com/api/v1/indicators/domain/{self.domain}/passive_dns"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                for record in data.get('passive_dns', [])[:self.limit]:
+                    hostname = record.get('hostname', '')
+                    if hostname and hostname != self.domain and hostname.endswith(self.domain):
+                        self.subdomains.add(hostname)
+        except:
+            self.failed_sources.add('AlienVault')
+    
+    def search_common_crawl(self):
+        print(f"[+]  Searching Common Crawl...")
+        self.sources_used.add('Common Crawl')
+        try:
+            url = f"https://index.commoncrawl.org/CC-MAIN-2023-50-index?url=*.{self.domain}&output=json"
+            response = requests.get(url, timeout=15)
+            if response.status_code == 200:
+                lines = response.text.strip().split('\n')
+                for line in lines[:self.limit]:
+                    try:
+                        data = json.loads(line)
+                        url_str = data.get('url', '')
+                        if url_str:
+                            parsed = urlparse(url_str)
+                            if parsed.netloc and self.domain in parsed.netloc:
+                                sub = parsed.netloc
+                                if sub != self.domain and sub.endswith(self.domain):
+                                    self.subdomains.add(sub)
+                    except:
+                        pass
+        except:
+            self.failed_sources.add('Common Crawl')
+    
+    def search_urlscan(self):
+        print(f"[+]  Searching URLScan...")
+        self.sources_used.add('URLScan')
+        try:
+            url = f"https://urlscan.io/api/v1/search/?q=domain:{self.domain}"
+            response = requests.get(url, timeout=10, headers=self.headers)
+            if response.status_code == 200:
+                data = response.json()
+                for result in data.get('results', [])[:self.limit]:
+                    page = result.get('page', {})
+                    domain_found = page.get('domain', '')
+                    if domain_found and domain_found != self.domain and domain_found.endswith(self.domain):
+                        self.subdomains.add(domain_found)
+        except:
+            self.failed_sources.add('URLScan')
+    
+    def get_subdomains_from_certificate_transparency_expanded(self):
+        print(f"[+]  Expanded certificate transparency search...")
+        self.sources_used.add('CRT.sh expanded')
+        try:
+            url = f"https://crt.sh/?q=%25.{self.domain}&output=json"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                entries = json.loads(response.text)
+                for entry in entries[:self.limit * 2]:
+                    name = entry.get('name_value', '')
+                    if name and self.domain in name:
+                        if name.startswith('*.'):
+                            name = name[2:]
+                        cleaned = name.strip()
+                        if cleaned.endswith(f".{self.domain}") and cleaned != self.domain:
+                            self.subdomains.add(cleaned)
+        except:
+            self.failed_sources.add('CRT.sh expanded')
+    
+    # ==================== HOST DISCOVERY ====================
+    
+    def discover_hosts(self):
+        print(f"[+]   Discovering hosts for {self.domain}...")
+        subdomains_list = list(self.subdomains)
+        if not subdomains_list:
+            print("[+]   No subdomains to resolve")
+            return
+        self.total_subdomains_discovered = len(subdomains_list)
+        
+        def resolve(host: str) -> Tuple[Set[str], Set[str]]:
+            ipv4_set = set()
+            ipv6_set = set()
+            try:
+                addrinfo = socket.getaddrinfo(host, None, socket.AF_INET)
+                for addr in addrinfo:
+                    ip = addr[4][0]
+                    ipv4_set.add(ip)
+                    self.ipv4_addresses.add(ip)
+                    self.current_dns_ips.add(ip)
+            except:
+                pass
+            try:
+                addrinfo = socket.getaddrinfo(host, None, socket.AF_INET6)
+                for addr in addrinfo:
+                    ip = addr[4][0]
+                    ipv6_set.add(ip)
+                    self.ipv6_addresses.add(ip)
+                    self.current_dns_ips.add(ip)
+            except:
+                pass
+            if ipv4_set or ipv6_set:
+                self.resolving_subdomains.add(host)
+            else:
+                self.non_resolving_subdomains.add(host)
+            return (ipv4_set, ipv6_set)
+        
+        with ThreadPoolExecutor(max_workers=100) as executor:
+            results = list(executor.map(resolve, subdomains_list))
+        for i, (ipv4_set, ipv6_set) in enumerate(results):
+            host = subdomains_list[i]
+            for ip in ipv4_set:
+                self.hosts.add(f"{host} -> {ip}")
+            for ip in ipv6_set:
+                self.hosts.add(f"{host} -> {ip}")
+        self.dns_resolving_count = len(self.resolving_subdomains)
+        self.dns_non_resolving_count = len(self.non_resolving_subdomains)
+        self._add_historical_ips()
+    
+    def _add_historical_ips(self):
+        try:
+            whois_result = subprocess.run(['whois', self.domain], capture_output=True, text=True)
+            if whois_result.stdout:
+                ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+                found_ips = re.findall(ip_pattern, whois_result.stdout)
+                for ip in found_ips[:10]:
+                    if ip not in self.current_dns_ips:
+                        self.historical_ips.add(ip)
+                        self.ipv4_addresses.add(ip)
+        except:
+            pass
+    
+    # ==================== GITHUB SEARCH ====================
+    
+    def search_github_enhanced(self):
+        print(f"[+]  Enhanced GitHub search...")
+        self.sources_used.add('GitHub')
+        github_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        queries = [
+            f"{self.domain}",
+            self.domain.split('.')[0],
+            f"{self.domain} email",
+            f"{self.domain} api",
+            f"{self.domain} config",
+            f"{self.domain} key",
+        ]
+        for query in queries[:3]:
+            try:
+                url = f"https://api.github.com/search/repositories?q={quote_plus(query)}&per_page=100"
+                response = requests.get(url, headers=github_headers, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    for repo in data.get('items', [])[:self.limit]:
+                        repo_url = repo.get('html_url', '')
+                        repo_name = repo.get('name', '').lower()
+                        repo_description = repo.get('description', '').lower() if repo.get('description') else ''
+                        repo_full_name = repo.get('full_name', '').lower()
+                        if (self.domain in repo_name or 
+                            self.domain in repo_description or 
+                            self.domain in repo_full_name):
+                            self.github_repos.add(repo_url)
+            except:
+                pass
+    
+    # ==================== WAYBACK SEARCH ====================
+    
+    def search_wayback_enhanced(self):
+        print(f"[+]   Enhanced Wayback search...")
+        self.sources_used.add('Wayback')
+        for page in range(0, 2000, 500):
+            try:
+                url = f"https://web.archive.org/cdx/search/cdx?url=*.{self.domain}/*&output=json&fl=original&limit=500&offset={page}"
+                response = requests.get(url, timeout=15)
+                if response.status_code == 200:
+                    entries = json.loads(response.text)
+                    if len(entries) <= 1:
+                        break
+                    for entry in entries[1:]:
+                        if isinstance(entry, list) and len(entry) > 0:
+                            url_str = entry[0]
+                            self.wayback_urls.add(url_str)
+                            self.harvest_emails_from_text(url_str)
+                            parsed = urlparse(url_str)
+                            if parsed.netloc and self.domain in parsed.netloc:
+                                sub = parsed.netloc
+                                if sub != self.domain and sub.endswith(self.domain):
+                                    self.subdomains.add(sub)
+                else:
+                    break
+            except:
+                break
+    
+    # ==================== SOCIAL MEDIA SEARCH ====================
+    
+    def search_instagram(self):
+        print(f"[+]  Searching Instagram for official accounts...")
+        self.sources_used.add('Instagram')
+        company_name = self.domain.split('.')[0]
+        try:
+            query = quote_plus(f"{company_name} instagram official")
+            url = f"https://www.google.com/search?q={query}"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                insta_pattern = r'https://(?:www\.)?instagram\.com/([a-zA-Z0-9_.]+)/?'
+                found = re.findall(insta_pattern, response.text)
+                for username in found[:self.limit]:
+                    if username and not username.startswith('explore') and not username.startswith('accounts'):
+                        if 'official' in username.lower() or username.lower() == company_name.lower():
+                            self.instagram_accounts.add(username)
+        except:
+            self.failed_sources.add('Instagram')
+    
+    def search_twitter(self):
+        print(f"[+]  Searching Twitter/X for official accounts...")
+        self.sources_used.add('Twitter')
+        company_name = self.domain.split('.')[0]
+        try:
+            query = quote_plus(f"{company_name} twitter official")
+            url = f"https://www.google.com/search?q={query}"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                twitter_pattern = r'https://(?:www\.)?(?:twitter\.com|x\.com)/([a-zA-Z0-9_]+)/?'
+                found = re.findall(twitter_pattern, response.text)
+                for username in found[:self.limit]:
+                    if username and not username.startswith('search') and not username.startswith('i'):
+                        if 'official' in username.lower() or username.lower() == company_name.lower():
+                            self.twitter_accounts.add(username)
+        except:
+            self.failed_sources.add('Twitter')
+    
+    def search_linkedin(self):
+        print(f"[+]  Searching LinkedIn for profiles...")
+        self.sources_used.add('LinkedIn')
+        try:
+            query = quote_plus(f"{self.domain} linkedin")
+            url = f"https://www.google.com/search?q={query}"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                linkedin_pattern = r'https://(?:www\.)?linkedin\.com/(?:company|in)/([a-zA-Z0-9-]+)'
+                found = re.findall(linkedin_pattern, response.text)
+                for profile in found[:self.limit]:
+                    self.linkedin_profiles.add(f"https://www.linkedin.com/company/{profile}")
+        except:
+            self.failed_sources.add('LinkedIn')
+    
+    # ==================== DNS BRUTEFORCE ====================
+    
+    def dns_bruteforce(self, wordlist: List[str] = None):
+        if not wordlist:
+            wordlist = [
+                'www', 'mail', 'ftp', 'localhost', 'webmail', 'smtp', 'pop', 'ns1', 'webdisk', 'ns2', 
+                'cpanel', 'whm', 'autodiscover', 'autoconfig', 'm', 'imap', 'test', 'ns', 'blog', 'pop3',
+                'dev', 'www2', 'admin', 'forum', 'news', 'vpn', 'ns3', 'mail2', 'new', 'mysql', 'old',
+                'lists', 'support', 'mobile', 'mx', 'static', 'docs', 'beta', 'shop', 'sql', 'secure',
+                'demo', 'cp', 'calendar', 'wiki', 'web', 'media', 'email', 'images', 'img', 'www1',
+                'download', 'ns4', 'dns', 'webmail2', 'cms', 'ftp', 'staging', 'stage', 'test', 'testing',
+                'dev', 'development', 'qa', 'prod', 'production', 'uat', 'sandbox', 'playground', 'demo',
+                'temp', 'tmp', 'backup', 'backups', 'data', 'db', 'database', 'api', 'rest', 'graphql',
+                'auth', 'login', 'signin', 'account', 'dashboard', 'admin', 'manage', 'portal', 'console',
+                'git', 'svn', 'jira', 'confluence', 'wiki', 'docs', 'doc', 'files', 'cdn', 'static',
+                'assets', 'img', 'media', 'video', 'audio', 'download', 'downloads', 'upload', 'uploads',
+                'cdn', 'cloud', 'server', 'host', 'vps', 'container', 'k8s', 'kubernetes', 'docker',
+                'redis', 'mongo', 'mysql', 'postgres', 'db', 'database', 'data', 'backup', 'archive'
+            ]
+        
+        print(f"[+]  DNS Bruteforcing {len(wordlist)} common subdomains...")
+        self.sources_used.add('DNS Bruteforce')
+        
+        def resolve(sub: str) -> Optional[str]:
+            try:
+                full = f"{sub}.{self.domain}"
+                ip = socket.gethostbyname(full)
+                return full
+            except:
+                return None
+        
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            results = list(executor.map(resolve, wordlist))
+        
+        for result in results:
+            if result:
+                self.subdomains.add(result)
+    
+    # ==================== EXTRACTION HELPERS ====================
+    
+    def _extract_all(self, text: str):
+        self.harvest_emails_from_text(text)
+        self._extract_subdomains(text)
+        self._extract_urls(text)
+    
+    def _extract_subdomains(self, text: str):
+        sub_pattern = rf'([a-zA-Z0-9-]+)\.{re.escape(self.domain)}'
+        found = re.findall(sub_pattern, text)
+        for sub in found[:self.limit]:
+            if sub not in ['www', 'mail', 'ftp']:
+                self.subdomains.add(f"{sub}.{self.domain}")
+    
+    def _extract_urls(self, text: str):
+        url_pattern = r'https?://[^\s<>"\'()]+'
+        found = re.findall(url_pattern, text)
+        for url in found[:self.limit]:
+            if self.domain in url:
+                self.urls.add(url)
+    
+    # ==================== MAIN RUNNER ====================
+    
+    def run(self):
+        # If WAF mode is enabled, just run WAF detection
+        if self.waf_mode:
+            self.detect_waf()
+            self.display_waf_results()
+            return
+        
+        # Normal OSINT mode
+        print(f"\n[+] COMING ONLINE.....")
+        print(f"[+]  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"[+] 💀JUST A RAW OSINT \n")
+        
+        # Email harvesting
+        self.search_emails_google()
+        self.search_emails_bing()
+        self.search_emails_duckduckgo()
+        self.search_emails_github()
+        self.search_emails_pastebin()
+        
+        # Subdomain discovery
+        self.get_subdomains_from_passive_dns()
+        self.search_common_crawl()
+        self.search_urlscan()
+        self.get_subdomains_from_certificate_transparency_expanded()
+        
+        # GitHub repos
+        self.search_github_enhanced()
+        
+        # Wayback
+        self.search_wayback_enhanced()
+        
+        # Social media
+        self.search_instagram()
+        self.search_twitter()
+        self.search_linkedin()
+        
+        # DNS bruteforce
+        self.dns_bruteforce()
+        
+        # DNS resolution
+        self.discover_hosts()
+        self.discover_website_ip()
+        self.display_results()
+    
+    # ==================== RESULTS DISPLAY ====================
+    
+    def display_results(self):
+        print(f"\n{'='*55}")
+        print(f"📊 tan-sam Results for {self.domain}")
+        
+        
+        print(f"\n SOURCES:")
+        all_sources = [
+            'Google Email Search', 'Bing Email Search', 'DuckDuckGo Email Search',
+            'GitHub Email Search', 'Pastebin Email Search',
+            'Passive DNS', 'Common Crawl', 'URLScan', 'CRT.sh expanded',
+            'GitHub', 'Wayback', 'DNS Bruteforce',
+            'Instagram', 'Twitter', 'LinkedIn'
+        ]
+        for source in all_sources:
+            if source in self.failed_sources:
+                print(f"  ⚠ {source} - failed")
+            elif source in self.sources_used:
+                print(f"  ✓ {source}")
+            else:
+                print(f"  ⚠ {source} - skipped")
+        
+        print(f"\n WEBSITE IP & ASN:")
+        if self.website_ips:
+            for entry in sorted(self.website_ips):
+                print(f"  📍 {entry}")
+        else:
+            print("   No IP found")
+        
+        if self.asn_info:
+            for entry in sorted(self.asn_info):
+                print(f"  📍 {entry}")
+        
+        print(f"\n  IP ADDRESSES:")
+        print(f"  Unique IPv4: {len(self.ipv4_addresses)}")
+        print(f"  Unique IPv6: {len(self.ipv6_addresses)}")
+        print(f"  Current DNS-linked: {len(self.current_dns_ips)}")
+        print(f"  Historical/passive: {len(self.historical_ips)}")
+        
+        if self.ipv4_addresses:
+            print(f"\n  IPv4 Addresses:")
+            for ip in sorted(self.ipv4_addresses)[:10]:
+                print(f"     {ip}")
+            if len(self.ipv4_addresses) > 10:
+                print(f"    ... and {len(self.ipv4_addresses) - 10} more")
+        
+        print(f"\n SUBDOMAINS:")
+        print(f"  Unique discovered: {len(self.subdomains)}")
+        print(f"  DNS-resolving: {len(self.resolving_subdomains)}")
+        print(f"  Non-resolving: {len(self.non_resolving_subdomains)}")
+        
+        if self.subdomains:
+            print(f"\n  Subdomains Found:")
+            for sub in sorted(self.subdomains)[:30]:
+                if sub in self.resolving_subdomains:
+                    print(f"    ✔️  {sub} (resolves)")
+                else:
+                    print(f"      {sub} (non-resolving)")
+            if len(self.subdomains) > 30:
+                print(f"    ... and {len(self.subdomains) - 30} more")
+        else:
+            print("   No subdomains found")
+        
+        print(f"\n EMAILS FOUND: {len(self.emails)}")
+        if self.emails:
+            for email in sorted(self.emails)[:30]:
+                print(f"    {email}")
+            if len(self.emails) > 30:
+                print(f"  ... and {len(self.emails) - 30} more")
+        else:
+            print("   No emails found")
+        
+        print(f"\n GITHUB REPOS (Relevant only): {len(self.github_repos)}")
+        if self.github_repos:
+            for repo in sorted(self.github_repos)[:15]:
+                print(f"   {repo}")
+            if len(self.github_repos) > 15:
+                print(f"  ... and {len(self.github_repos) - 15} more")
+        else:
+            print("   No relevant GitHub repos found")
+        
+        print(f"\n OFFICIAL INSTAGRAM ACCOUNTS: {len(self.instagram_accounts)}")
+        if self.instagram_accounts:
+            for account in sorted(self.instagram_accounts)[:20]:
+                print(f"   @{account}")
+            if len(self.instagram_accounts) > 20:
+                print(f"  ... and {len(self.instagram_accounts) - 20} more")
+        else:
+            print("   No official Instagram accounts found")
+        
+        print(f"\n OFFICIAL TWITTER/X ACCOUNTS: {len(self.twitter_accounts)}")
+        if self.twitter_accounts:
+            for account in sorted(self.twitter_accounts)[:20]:
+                print(f"   @{account}")
+            if len(self.twitter_accounts) > 20:
+                print(f"  ... and {len(self.twitter_accounts) - 20} more")
+        else:
+            print("   No official Twitter/X accounts found")
+        
+        print(f"\n LINKEDIN PROFILES: {len(self.linkedin_profiles)}")
+        if self.linkedin_profiles:
+            for profile in sorted(self.linkedin_profiles)[:15]:
+                print(f"   {profile}")
+            if len(self.linkedin_profiles) > 15:
+                print(f"  ... and {len(self.linkedin_profiles) - 15} more")
+        else:
+            print("   No LinkedIn profiles found")
+        
+        print(f"\n  WAYBACK URLs: {len(self.wayback_urls)}")
+        if self.wayback_urls:
+            for url in sorted(self.wayback_urls)[:10]:
+                print(f"   {url}")
+            if len(self.wayback_urls) > 10:
+                print(f"  ... and {len(self.wayback_urls) - 10} more")
+        else:
+            print("   No Wayback URLs found")
+        
+        print(f"\n REDDIT POSTS: {len(self.reddit_posts)}")
+        if self.reddit_posts:
+            for post in sorted(self.reddit_posts)[:10]:
+                print(f"   {post}")
+            if len(self.reddit_posts) > 10:
+                print(f"  ... and {len(self.reddit_posts) - 10} more")
+        else:
+            print("   No Reddit posts found")
+        
+        print(f"\n PASTEBIN PASTES: {len(self.pastebin_posts)}")
+        if self.pastebin_posts:
+            for paste in sorted(self.pastebin_posts)[:10]:
+                print(f"   {paste}")
+            if len(self.pastebin_posts) > 10:
+                print(f"  ... and {len(self.pastebin_posts) - 10} more")
+        else:
+            print("   No Pastebin pastes found")
+        
+        print(f"\n URLS FOUND: {len(self.urls)}")
+        if self.urls:
+            for url in sorted(self.urls)[:10]:
+                print(f"   {url}")
+            if len(self.urls) > 10:
+                print(f"  ... and {len(self.urls) - 10} more")
+        else:
+            print("   No URLs found")
+        
+        print(f"\n{'='*70}")
+        print(f" TASK ACCOMPLISHED  💀")
+       
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="tan-sam - OSINT Harvester",
+        epilog="USE IT, ABUSE IT, WHO CARES 💀"
+    )
+    
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument('-d', '--domain', help='Target domain for OSINT scan')
+    mode_group.add_argument('-waf', '--waf', help='Target URL for WAF detection (e.g., https://example.com)')
+    
+    parser.add_argument('-l', '--limit', type=int, default=500, help='Result limit per source')
+    parser.add_argument('-t', '--timeout', type=int, default=15, help='Request timeout in seconds')
+    parser.add_argument('--wordlist', help='Path to custom subdomain wordlist (one per line)')
+    
+    args = parser.parse_args()
+    
+    if args.waf:
+        harvester = TanSamHarvester(url=args.waf, limit=args.limit, timeout=args.timeout)
+    else:
+        harvester = TanSamHarvester(domain=args.domain, limit=args.limit, timeout=args.timeout)
+    
+    if args.wordlist and not args.waf:
+        try:
+            with open(args.wordlist, 'r') as f:
+                wordlist = [line.strip() for line in f if line.strip()]
+            harvester.dns_bruteforce = lambda: None
+        except:
+            print(f"[-] Could not read wordlist: {args.wordlist}")
+    
+    harvester.run()
+
+
+if __name__ == '__main__':
+    main()
