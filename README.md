@@ -1,6 +1,4 @@
 ## RAW-OSINT & WAF Detector
-Developed by: **SAMI CHAWALWALA**
----
 
 
 ### Installation FOR KALI
@@ -9,9 +7,9 @@ Developed by: **SAMI CHAWALWALA**
 
 sudo su
 
-git clone https://github.com/sami-chawalwala/OSINT-with-WAF-Detector.git
+git clone https://github.com/sami-chawalwala/OSINT-with-WAF-Detector.git RAW-OSINT
 
-cd OSINT-with-WAF-Detector
+cd RAW-OSINT
 
 pip3 install requests beautifulsoup4 aiohttp wafw00f --break-system-packages
 
@@ -24,7 +22,7 @@ chmod +x RAW-OSINT
  
  bash
  
-      python3 RAW-OSINT.py -d example.com
+      ./RAW-OSINT -d example.com
 
 
 
@@ -34,7 +32,7 @@ chmod +x RAW-OSINT
    
  bash
  
-     python3 RAW-OSINT.py -waf https://example.com
+     ./RAW-OSINT -waf https://example.com
 
 
 
@@ -67,5 +65,5 @@ RAW-OSINT is a powerful OSINT (Open Source Intelligence) Harvester with built-in
 - Notes & issues - Timeouts, configuration notes
 
 ---
-
-
+Developed by: **SAMI CHAWALWALA**
+---
