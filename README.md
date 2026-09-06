@@ -5,7 +5,6 @@
 
 -(open your terminal)-
 
-sudo su
 
 git clone https://github.com/sami-chawalwala/OSINT-with-WAF-Detector.git RAW-OSINT
 
