@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-"""
- - OSINT 
-"""
 
 import asyncio
 import aiohttp
@@ -19,10 +16,6 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
-# ============================================================
-# BANNER - SAMI
-# ============================================================
-
 BANNER = """
     ███████╗ ███████  ███╗   ███╗ ██╗
     ██╔════╝ ██╔══██╗ ████╗ ████║ ██║
@@ -30,15 +23,11 @@ BANNER = """
     ╚════██║ ██╔══██║ ██║╚██╔╝██║ ██║
     ███████║ ██║  ██║ ██║ ╚═╝ ██║ ██║
     ╚══════╝ ╚═╝  ╚═╝ ╚═╝     ╚═╝ ╚═╝
-
-    
 """
 
 class TanSamHarvester:
    
-    
     def __init__(self, domain: str = None, url: str = None, limit: int = 500, timeout: int = 15):
-        # Print banner first
         print(BANNER)
         
         self.domain = domain
@@ -47,13 +36,11 @@ class TanSamHarvester:
         self.timeout = timeout
         self.waf_mode = url is not None
         
-        # Core data
         self.emails: Set[str] = set()
         self.subdomains: Set[str] = set()
         self.resolving_subdomains: Set[str] = set()
         self.non_resolving_subdomains: Set[str] = set()
         
-        # IP data
         self.ipv4_addresses: Set[str] = set()
         self.ipv6_addresses: Set[str] = set()
         self.current_dns_ips: Set[str] = set()
@@ -61,7 +48,6 @@ class TanSamHarvester:
         self.asn_info: Set[str] = set()
         self.asn_numbers: Set[str] = set()
         
-        # Other data
         self.hosts: Set[str] = set()
         self.urls: Set[str] = set()
         self.github_repos: Set[str] = set()
@@ -75,7 +61,6 @@ class TanSamHarvester:
         self.pastebin_posts: Set[str] = set()
         self.website_ips: Set[str] = set()
         
-        # WAF data
         self.waf_detected: str = None
         self.waf_details: List[str] = []
         self.waf_confidence: str = "N/A"
@@ -83,11 +68,9 @@ class TanSamHarvester:
         self.request_count: str = "N/A"
         self.notes: List[str] = []
         
-        # Source tracking
         self.sources_used: Set[str] = set()
         self.failed_sources: Set[str] = set()
         
-        # Subdomain tracking
         self.total_subdomains_discovered: int = 0
         self.dns_resolving_count: int = 0
         self.dns_non_resolving_count: int = 0
@@ -103,16 +86,11 @@ class TanSamHarvester:
         print(f"[+]--Developed by: SAMI CHAWALWALA ")
         print(f"[+]☠️ tan-sam initialized for domain: {domain}")
     
-    # ==================== WAF DETECTION (FULL POWER) ====================
-    
     def detect_waf(self):
-        """Detect WAF using wafw00f with full potential."""
         print(f"\n[+] 🛡️  WAF Detection activated for: {self.url}...")
         self.sources_used.add('WAF Detection')
         
-        # Try using wafw00f with full options
         try:
-            # Use -a (find all) and -v (verbose) for maximum detection
             result = subprocess.run(
                 ['wafw00f', '-a', '-v', self.url],
                 capture_output=True,
@@ -124,21 +102,18 @@ class TanSamHarvester:
                 output = result.stdout
                 stderr = result.stderr
                 
-                # Clean details - skip ASCII art
                 clean_details = []
                 for line in output.strip().split('\n'):
                     if not any(x in line for x in ['?', '_', '`', '(', ')', '/', '\\', '|', '.', ',', "'", '"']):
-                        if line.strip() and not line.startswith(' ' * 10):  # Skip indented ASCII
+                        if line.strip() and not line.startswith(' ' * 10):
                             clean_details.append(line.strip())
                 self.waf_details = clean_details
                 
-                # Extract confidence
                 self.waf_confidence = "HIGH"
                 conf_match = re.search(r'confidence:?\s*(\w+)', output, re.IGNORECASE)
                 if conf_match:
                     self.waf_confidence = conf_match.group(1).upper()
                 
-                # Extract WAF name - multiple patterns
                 waf_patterns = [
                     r'is behind (.+?)\s*WAF',
                     r'is behind (.+?)\s*\(',
@@ -158,15 +133,12 @@ class TanSamHarvester:
                         waf_detected = match.group(1).strip()
                         break
                 
-                # Check generic detection
                 generic_match = re.search(r'Generic Detection results?:\s*(.+)', output, re.IGNORECASE)
                 self.generic_detection = generic_match.group(1).strip() if generic_match else "N/A"
                 
-                # Get request count
                 req_match = re.search(r'Number of requests?:\s*(\d+)', output, re.IGNORECASE)
                 self.request_count = req_match.group(1) if req_match else "N/A"
                 
-                # Build notes
                 self.notes = []
                 if "timeout" in stderr.lower() or "timeout" in output.lower():
                     timeout_match = re.search(r'(\d+)s?\s*timeout', stderr.lower() + output.lower(), re.IGNORECASE)
@@ -174,16 +146,13 @@ class TanSamHarvester:
                         self.notes.append(f"WAFW00F generic detection encountered a {timeout_match.group(1)}s HTTPS timeout")
                 self.notes.append("Detection indicates a security layer; exact configuration is not inferred")
                 
-                # Determine result
                 if 'No WAF detected' in output or 'No WAF' in output:
                     self.waf_detected = "No WAF Detected"
                     self.waf_confidence = "N/A"
                 elif waf_detected:
                     self.waf_detected = waf_detected
-                    # Add evidence items
                     self.waf_details.insert(0, f"Fingerprint match: {waf_detected}")
                 else:
-                    # Aggressive fallback detection
                     lines = output.split('\n')
                     for line in lines:
                         if 'behind' in line.lower() or 'waf' in line.lower():
@@ -217,25 +186,20 @@ class TanSamHarvester:
             self.failed_sources.add(f'wafw00f ({str(e)})')
             self.notes = [f"wafw00f error: {str(e)}", "Detection indicates a security layer; exact configuration is not inferred"]
         
-        # Fallback: Basic WAF detection
         self._basic_waf_detection()
     
     def _basic_waf_detection(self):
-        """Basic WAF detection without wafw00f."""
         print("[+]  Running basic WAF detection...")
         
         try:
-            # Send normal request
             response = requests.get(self.url, headers=self.headers, timeout=10)
             normal_status = response.status_code
             headers = response.headers
             
-            # Send security-pattern request (SQL injection probe)
             test_url = self.url + "' OR '1'='1"
             test_response = requests.get(test_url, headers=self.headers, timeout=10, allow_redirects=False)
             security_status = test_response.status_code
             
-            # Check headers for WAF signatures
             server_header = headers.get('Server', '').lower()
             set_cookie = headers.get('Set-Cookie', '').lower()
             
@@ -266,7 +230,6 @@ class TanSamHarvester:
                         detected.append(waf_name)
                         break
             
-            # Check for generic block pages
             if response.status_code in [403, 406, 503] or test_response.status_code in [403, 406, 503]:
                 if 'cloudflare' in str(response.content).lower():
                     detected.append('Cloudflare')
@@ -306,7 +269,6 @@ class TanSamHarvester:
             self.failed_sources.add('Basic WAF Detection')
     
     def display_waf_results(self):
-        """Display WAF detection results in clean, detailed format."""
         print(f"\n{'='*70}")
         print(f"  WAF DETECTION RESULTS")
         print(f"{'='*70}")
@@ -316,7 +278,6 @@ class TanSamHarvester:
         print(f" Confidence: {self.waf_confidence if hasattr(self, 'waf_confidence') else 'N/A'}")
         
         print(f"\n🔎 Evidence:")
-        # Show clean evidence
         evidence_found = False
         if hasattr(self, 'generic_detection') and self.generic_detection and self.generic_detection != "N/A":
             if "fingerprint" in self.generic_detection.lower() or "match" in self.generic_detection.lower():
@@ -353,10 +314,7 @@ class TanSamHarvester:
         print(f"✅  WAF detection done. 💀")
         
     
-    # ==================== WEBSITE IP & ASN DISCOVERY ====================
-    
     def discover_website_ip(self):
-        """Get the actual IP of the domain and related info."""
         if self.waf_mode:
             if self.url:
                 parsed = urlparse(self.url)
@@ -411,8 +369,6 @@ class TanSamHarvester:
                 
         except:
             print(f"[+] ⚠️  Could not resolve IP for {self.domain}")
-    
-    # ==================== EMAIL HARVESTING ====================
     
     def harvest_emails_from_text(self, text: str):
         email_patterns = [
@@ -516,8 +472,6 @@ class TanSamHarvester:
         except:
             self.failed_sources.add('Pastebin Email Search')
     
-    # ==================== SUBDOMAIN DISCOVERY ====================
-    
     def get_subdomains_from_passive_dns(self):
         print(f"[+]  Getting subdomains from passive DNS...")
         self.sources_used.add('Passive DNS')
@@ -614,8 +568,6 @@ class TanSamHarvester:
         except:
             self.failed_sources.add('CRT.sh expanded')
     
-    # ==================== HOST DISCOVERY ====================
-    
     def discover_hosts(self):
         print(f"[+]   Discovering hosts for {self.domain}...")
         subdomains_list = list(self.subdomains)
@@ -676,8 +628,6 @@ class TanSamHarvester:
         except:
             pass
     
-    # ==================== GITHUB SEARCH ====================
-    
     def search_github_enhanced(self):
         print(f"[+]  Enhanced GitHub search...")
         self.sources_used.add('GitHub')
@@ -711,8 +661,6 @@ class TanSamHarvester:
             except:
                 pass
     
-    # ==================== WAYBACK SEARCH ====================
-    
     def search_wayback_enhanced(self):
         print(f"[+]   Enhanced Wayback search...")
         self.sources_used.add('Wayback')
@@ -738,8 +686,6 @@ class TanSamHarvester:
                     break
             except:
                 break
-    
-    # ==================== SOCIAL MEDIA SEARCH ====================
     
     def search_instagram(self):
         print(f"[+]  Searching Instagram for official accounts...")
@@ -792,8 +738,6 @@ class TanSamHarvester:
         except:
             self.failed_sources.add('LinkedIn')
     
-    # ==================== DNS BRUTEFORCE ====================
-    
     def dns_bruteforce(self, wordlist: List[str] = None):
         if not wordlist:
             wordlist = [
@@ -830,8 +774,6 @@ class TanSamHarvester:
             if result:
                 self.subdomains.add(result)
     
-    # ==================== EXTRACTION HELPERS ====================
-    
     def _extract_all(self, text: str):
         self.harvest_emails_from_text(text)
         self._extract_subdomains(text)
@@ -851,58 +793,43 @@ class TanSamHarvester:
             if self.domain in url:
                 self.urls.add(url)
     
-    # ==================== MAIN RUNNER ====================
-    
     def run(self):
-        # If WAF mode is enabled, just run WAF detection
         if self.waf_mode:
             self.detect_waf()
             self.display_waf_results()
             return
         
-        # Normal OSINT mode
         print(f"\n[+] COMING ONLINE.....")
         print(f"[+]  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"[+] 💀JUST A RAW OSINT \n")
         
-        # Email harvesting
         self.search_emails_google()
         self.search_emails_bing()
         self.search_emails_duckduckgo()
         self.search_emails_github()
         self.search_emails_pastebin()
         
-        # Subdomain discovery
         self.get_subdomains_from_passive_dns()
         self.search_common_crawl()
         self.search_urlscan()
         self.get_subdomains_from_certificate_transparency_expanded()
         
-        # GitHub repos
         self.search_github_enhanced()
-        
-        # Wayback
         self.search_wayback_enhanced()
         
-        # Social media
         self.search_instagram()
         self.search_twitter()
         self.search_linkedin()
         
-        # DNS bruteforce
         self.dns_bruteforce()
         
-        # DNS resolution
         self.discover_hosts()
         self.discover_website_ip()
         self.display_results()
     
-    # ==================== RESULTS DISPLAY ====================
-    
     def display_results(self):
         print(f"\n{'='*55}")
         print(f"📊 tan-sam Results for {self.domain}")
-        
         
         print(f"\n SOURCES:")
         all_sources = [
@@ -1046,7 +973,6 @@ class TanSamHarvester:
         print(f" TASK ACCOMPLISHED  💀")
        
 
-
 def main():
     parser = argparse.ArgumentParser(
         description="tan-sam - OSINT Harvester",
@@ -1077,7 +1003,6 @@ def main():
             print(f"[-] Could not read wordlist: {args.wordlist}")
     
     harvester.run()
-
 
 if __name__ == '__main__':
     main()
