@@ -12,7 +12,7 @@ cd raw-osint
 
 pip3 install requests beautifulsoup4 aiohttp wafw00f --break-system-packages
 
-chmod +x raw-osint
+chmod +x RAW-OSINT
 
  **Installation Done**
  
@@ -21,7 +21,7 @@ chmod +x raw-osint
  
  bash
  
-      ./raw-osint -d example.com
+      ./RAW-OSINT -d example.com
 
 
 
@@ -31,7 +31,7 @@ chmod +x raw-osint
    
  bash
  
-     ./raw-osint -waf https://example.com
+     ./RAW-OSINT -waf https://example.com
 
 
 
