@@ -6,13 +6,13 @@
 -(open your terminal)-
 
 
-git clone https://github.com/sami-chawalwala/OSINT-with-WAF-Detector.git RAW-OSINT
+git clone https://github.com/sami-chawalwala/OSINT-with-WAF-Detector.git raw-osint
 
-cd RAW-OSINT
+cd raw-osint
 
 pip3 install requests beautifulsoup4 aiohttp wafw00f --break-system-packages
 
-chmod +x RAW-OSINT
+chmod +x raw-osint
 
  **Installation Done**
  
@@ -21,7 +21,7 @@ chmod +x RAW-OSINT
  
  bash
  
-      ./RAW-OSINT -d example.com
+      ./raw-osint -d example.com
 
 
 
@@ -31,7 +31,7 @@ chmod +x RAW-OSINT
    
  bash
  
-     ./RAW-OSINT -waf https://example.com
+     ./raw-osint -waf https://example.com
 
 
 
