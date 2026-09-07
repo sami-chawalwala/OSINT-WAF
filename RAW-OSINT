@@ -25,7 +25,7 @@ BANNER = """
     ╚══════╝ ╚═╝  ╚═╝ ╚═╝     ╚═╝ ╚═╝
 """
 
-class TanSamHarvester:
+class SamHarvester:
    
     def __init__(self, domain: str = None, url: str = None, limit: int = 500, timeout: int = 15):
         print(BANNER)
@@ -84,7 +84,7 @@ class TanSamHarvester:
         else:
             print(f"[+]--Open-source intelligence ")
         print(f"[+]--Developed by: SAMI CHAWALWALA ")
-        print(f"[+]☠️ tan-sam initialized for domain: {domain}")
+        print(f"[+]☠️ sin-sam initialized for domain: {domain}")
     
     def detect_waf(self):
         print(f"\n[+] 🛡️  WAF Detection activated for: {self.url}...")
@@ -829,7 +829,7 @@ class TanSamHarvester:
     
     def display_results(self):
         print(f"\n{'='*55}")
-        print(f"📊 tan-sam Results for {self.domain}")
+        print(f"📊sin-sam Results for {self.domain}")
         
         print(f"\n SOURCES:")
         all_sources = [
@@ -975,7 +975,7 @@ class TanSamHarvester:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="tan-sam - OSINT Harvester",
+        description="sam - OSINT Harvester",
         epilog="USE IT, ABUSE IT, WHO CARES "
     )
     
@@ -990,9 +990,9 @@ def main():
     args = parser.parse_args()
     
     if args.waf:
-        harvester = TanSamHarvester(url=args.waf, limit=args.limit, timeout=args.timeout)
+        harvester = SamHarvester(url=args.waf, limit=args.limit, timeout=args.timeout)
     else:
-        harvester = TanSamHarvester(domain=args.domain, limit=args.limit, timeout=args.timeout)
+        harvester = SamHarvester(domain=args.domain, limit=args.limit, timeout=args.timeout)
     
     if args.wordlist and not args.waf:
         try:
@@ -1006,3 +1006,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+             
